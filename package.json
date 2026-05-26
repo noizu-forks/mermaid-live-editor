@@ -117,6 +117,7 @@
     "uuid": "9.0.1",
     "better-auth": "^1.2.0",
     "drizzle-orm": "^0.44.0",
+    "nanoid": "^5.1.5",
     "postgres": "^3.4.5"
   },
   "lint-staged": {

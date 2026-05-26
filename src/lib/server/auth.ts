@@ -2,13 +2,20 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
 import { db } from './db';
+import { users, accounts, sessions, verifications } from './db/schema';
 
 function createAuth() {
+  if (!process.env.BETTER_AUTH_SECRET) {
+    throw new Error('BETTER_AUTH_SECRET is not set. Cannot initialize authentication.');
+  }
   return betterAuth({
-    baseURL: process.env.ORIGIN ?? 'https://mermaid.noizu.com',
-    database: drizzleAdapter(db, { provider: 'pg' }),
+    baseURL: process.env.BETTER_AUTH_URL ?? process.env.ORIGIN ?? 'https://mermaid.noizu.com',
+    database: drizzleAdapter(db, {
+      provider: 'pg',
+      schema: { user: users, account: accounts, session: sessions, verification: verifications }
+    }),
     emailAndPassword: {
-      enabled: false
+      enabled: true
     },
     plugins: [
       genericOAuth({
@@ -35,7 +42,10 @@ function createAuth() {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24
     },
-    trustedOrigins: [process.env.ORIGIN ?? 'https://mermaid.noizu.com'],
+    trustedOrigins: [
+      process.env.BETTER_AUTH_URL ?? process.env.ORIGIN ?? 'https://mermaid.noizu.com',
+      'http://localhost:3000'
+    ],
     user: {
       additionalFields: {
         handle: {
