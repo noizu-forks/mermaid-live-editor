@@ -1,4 +1,4 @@
-import adapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-node';
 import 'dotenv/config';
 import { sveltePreprocess } from 'svelte-preprocess';
 
@@ -15,8 +15,8 @@ const config = {
       base: process.env.MERMAID_BASE_PATH ?? ''
     },
     adapter: adapter({
-      pages: 'docs',
-      fallback: '404.html'
+      out: 'build',
+      precompress: true
     })
   }
 };

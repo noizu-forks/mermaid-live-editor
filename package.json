@@ -32,7 +32,7 @@
     "@iconify-json/material-symbols": "^1.2.20",
     "@iconify-json/mdi": "^1.2.3",
     "@playwright/test": "^1.52.0",
-    "@sveltejs/adapter-static": "^3.0.9",
+    "@sveltejs/adapter-node": "^5.2.0",
     "@sveltejs/kit": "^2.37.0",
     "@sveltejs/vite-plugin-svelte": "^6.1.3",
     "@tailwindcss/typography": "^0.5.19",
@@ -50,6 +50,7 @@
     "chai": "^4.5.0",
     "clsx": "^2.1.1",
     "cssnano": "^6.1.2",
+    "drizzle-kit": "^0.31.0",
     "dotenv": "^17.3.1",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
@@ -113,7 +114,10 @@
     "random-word-slugs": "0.1.7",
     "svg-pan-zoom": "3.6.2",
     "svg2roughjs": "^3.2.1",
-    "uuid": "9.0.1"
+    "uuid": "9.0.1",
+    "better-auth": "^1.2.0",
+    "drizzle-orm": "^0.44.0",
+    "postgres": "^3.4.5"
   },
   "lint-staged": {
     "*.{ts,svelte,js,css,md,json}": [

@@ -12,6 +12,7 @@
   import { Button } from '$/components/ui/button';
   import { Separator } from '$/components/ui/separator';
   import { dismissPromotion, getActivePromotion } from '$lib/util/promos/promo';
+  import { authClient } from '$lib/auth-client';
   import type { ComponentProps, Snippet } from 'svelte';
   import MermaidIcon from '~icons/custom/mermaid';
   import CloseIcon from '~icons/material-symbols/close-rounded';
@@ -25,6 +26,8 @@
   }
 
   let { children, mobileToggle, hidePromotion = false }: Props = $props();
+
+  const session = authClient.useSession();
 
   type Links = ComponentProps<typeof DropdownNavMenu>['links'];
 
@@ -96,6 +99,27 @@
     <DropdownNavMenu icon={GithubIcon} links={githubLinks} />
     <Separator orientation="vertical" />
     {@render children()}
+    <Separator orientation="vertical" />
+    {#if $session.data?.user}
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-muted-foreground">
+          @{$session.data.user.handle ?? $session.data.user.name ?? 'user'}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onclick={async () => {
+            await authClient.signOut();
+            window.location.href = '/edit';
+          }}>
+          Sign out
+        </Button>
+      </div>
+    {:else}
+      <Button variant="outline" size="sm" onclick={() => (window.location.href = '/auth/login')}>
+        Sign in
+      </Button>
+    {/if}
   </div>
   {@render mobileToggle?.()}
 </nav>
