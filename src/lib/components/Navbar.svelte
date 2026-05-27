@@ -108,9 +108,11 @@
         <Button variant="ghost" size="sm" onclick={() => (window.location.href = '/diagrams')}>
           My Diagrams
         </Button>
-        <span class="text-sm text-muted-foreground">
+        <a
+          href="/profile"
+          class="text-sm text-muted-foreground no-underline transition-colors hover:text-foreground">
           @{$session.data.user.handle ?? $session.data.user.name ?? 'user'}
-        </span>
+        </a>
         <Button
           variant="ghost"
           size="sm"

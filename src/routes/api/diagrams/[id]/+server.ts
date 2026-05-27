@@ -1,7 +1,15 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { diagrams, folders, diagramShares, orgMembers } from '$lib/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import {
+  diagrams,
+  folders,
+  diagramShares,
+  orgMembers,
+  diagramBranches,
+  diagramCommits
+} from '$lib/server/db/schema';
+import { generateId } from '$lib/server/id';
+import { eq, and, desc } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 /**
@@ -35,8 +43,11 @@ async function checkShareAccess(diagramId: string, userId: string): Promise<bool
 
 const MAX_CODE_LENGTH = 500_000;
 const MAX_TITLE_LENGTH = 200;
+const MAX_DESCRIPTION_LENGTH = 2_000;
 const MAX_CONFIG_LENGTH = 50_000; // 50KB
 const MAX_THUMBNAIL_LENGTH = 500_000; // 500KB
+const MAX_TAGS = 20;
+const MAX_TAG_LENGTH = 50;
 const VALID_VISIBILITY = ['private', 'unlisted', 'public'] as const;
 
 /**
@@ -136,6 +147,19 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     updates.visibility = body.visibility;
   }
 
+  if (typeof body.description === 'string') {
+    updates.description = body.description.slice(0, MAX_DESCRIPTION_LENGTH).trim() || null;
+  }
+
+  if (Array.isArray(body.tags)) {
+    const tags = body.tags
+      .filter((t: unknown): t is string => typeof t === 'string')
+      .map((t: string) => t.trim().toLowerCase().slice(0, MAX_TAG_LENGTH))
+      .filter((t: string) => t.length > 0)
+      .slice(0, MAX_TAGS);
+    updates.tags = JSON.stringify(tags);
+  }
+
   if (typeof body.starred === 'boolean') {
     updates.starred = body.starred;
   }
@@ -168,6 +192,69 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     .set(updates)
     .where(eq(diagrams.id, params.id))
     .returning();
+
+  // ─── Auto-commit on code/config changes (non-blocking) ──────────────────
+  if (updates.code !== undefined || updates.config !== undefined) {
+    try {
+      // Ensure "main" branch exists
+      let activeBranchId = updated.activeBranchId;
+      if (!activeBranchId) {
+        const mainBranch = await db.query.diagramBranches.findFirst({
+          where: and(eq(diagramBranches.diagramId, params.id), eq(diagramBranches.name, 'main'))
+        });
+        if (mainBranch) {
+          activeBranchId = mainBranch.id;
+        } else {
+          const branchId = generateId();
+          const now = new Date();
+          await db.insert(diagramBranches).values({
+            createdAt: now,
+            createdBy: locals.user.id,
+            diagramId: params.id,
+            id: branchId,
+            name: 'main',
+            updatedAt: now
+          });
+          activeBranchId = branchId;
+          // Set as active branch
+          await db
+            .update(diagrams)
+            .set({ activeBranchId: branchId })
+            .where(eq(diagrams.id, params.id));
+        }
+      }
+
+      // Get current HEAD to set as parent
+      const [head] = await db
+        .select()
+        .from(diagramCommits)
+        .where(eq(diagramCommits.branchId, activeBranchId))
+        .orderBy(desc(diagramCommits.createdAt))
+        .limit(1);
+
+      const commitId = generateId();
+      const commitNow = new Date();
+
+      await db.insert(diagramCommits).values({
+        branchId: activeBranchId,
+        code: updated.code,
+        committedBy: locals.user.id,
+        config: updated.config,
+        createdAt: commitNow,
+        id: commitId,
+        message: 'Auto-save',
+        parentCommitId: head?.id ?? null
+      });
+
+      // Update branch updatedAt
+      await db
+        .update(diagramBranches)
+        .set({ updatedAt: commitNow })
+        .where(eq(diagramBranches.id, activeBranchId));
+    } catch (err) {
+      console.error('[auto-commit] Failed to create auto-commit for diagram', params.id, err);
+    }
+  }
 
   return json(updated);
 };

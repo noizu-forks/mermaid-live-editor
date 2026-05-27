@@ -3,6 +3,7 @@ import {
   diagrams,
   users,
   diagramShares,
+  diagramForks,
   orgMembers,
   projectDiagrams,
   projects
@@ -65,19 +66,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   // Fetch projects this diagram belongs to
-  let diagramProjects: { color: string | null; id: string; name: string }[] = [];
+  let diagramProjects: { id: string; name: string }[] = [];
   try {
     const pds = await db
       .select({
         projectId: projectDiagrams.projectId,
-        projectName: projects.name,
-        projectColor: projects.color
+        projectName: projects.name
       })
       .from(projectDiagrams)
       .innerJoin(projects, eq(projectDiagrams.projectId, projects.id))
       .where(eq(projectDiagrams.diagramId, diagram.id));
     diagramProjects = pds.map((p) => ({
-      color: p.projectColor,
       id: p.projectId,
       name: p.projectName
     }));
@@ -85,17 +84,36 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Projects table may not exist yet during migration
   }
 
-  // Parse tags
+  // Parse tags — jsonb column, should already be an array
   let tags: string[] = [];
   if (diagram.tags) {
-    try {
-      tags = JSON.parse(diagram.tags);
-    } catch {
-      // Invalid JSON — ignore
+    if (Array.isArray(diagram.tags)) {
+      tags = diagram.tags as string[];
+    } else if (typeof diagram.tags === 'string') {
+      try {
+        tags = JSON.parse(diagram.tags);
+      } catch {
+        // Invalid JSON — ignore
+      }
     }
   }
 
   const isOwner = locals.user?.id === diagram.userId;
+
+  // Check if this diagram is a fork of another diagram
+  let isFork = false;
+  let sourceDiagramId: string | null = null;
+  try {
+    const forkRecord = await db.query.diagramForks?.findFirst({
+      where: eq(diagramForks.forkedDiagramId, diagram.id)
+    });
+    if (forkRecord?.sourceDiagramId) {
+      isFork = true;
+      sourceDiagramId = forkRecord.sourceDiagramId;
+    }
+  } catch {
+    // diagramForks table may not exist yet during migration
+  }
 
   return {
     author,
@@ -103,14 +121,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       code: diagram.code,
       config: diagram.config,
       createdAt: diagram.createdAt.toISOString(),
-      description: (diagram as unknown as { description?: string }).description ?? null,
+      description: diagram.description ?? null,
       id: diagram.id,
       tags,
       title: diagram.title,
       updatedAt: diagram.updatedAt.toISOString(),
       visibility: diagram.visibility
     },
+    isFork,
     isOwner,
-    projects: diagramProjects
+    projects: diagramProjects,
+    sourceDiagramId,
+    userId: locals.user?.id ?? null
   };
 };

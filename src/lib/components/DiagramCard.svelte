@@ -1,11 +1,14 @@
 <script lang="ts">
+  import { Input } from '$/components/ui/input';
   import { Separator } from '$/components/ui/separator';
+  import { toast } from 'svelte-sonner';
   import StarIcon from '~icons/material-symbols/star-rounded';
   import StarOutlineIcon from '~icons/material-symbols/star-outline-rounded';
   import FolderIcon from '~icons/material-symbols/folder-outline-rounded';
   import EditIcon from '~icons/material-symbols/edit-outline-rounded';
   import DeleteIcon from '~icons/material-symbols/delete-outline-rounded';
   import MoreIcon from '~icons/material-symbols/more-vert';
+  import DetailsIcon from '~icons/material-symbols/tune-rounded';
   import LockIcon from '~icons/material-symbols/lock-outline';
   import LinkIcon from '~icons/material-symbols/link-rounded';
   import PublicIcon from '~icons/material-symbols/public';
@@ -16,6 +19,8 @@
     id: string;
     userId: string | null;
     title: string | null;
+    description?: string | null;
+    tags?: string[];
     visibility: string;
     starred: boolean;
     folderId: string | null;
@@ -35,13 +40,73 @@
     onstar?: (diagram: DiagramSummary) => void;
     ondelete?: (id: string) => void;
     onmove?: (diagramId: string, folderId: string | null) => void;
+    onupdate?: (diagram: DiagramSummary) => void;
   }
 
-  let { diagram, mode, folders = [], onstar, ondelete, onmove }: Props = $props();
+  let { diagram, mode, folders = [], onstar, ondelete, onmove, onupdate }: Props = $props();
 
   // ─── Local state ────────────────────────────────────────────────────────────
 
   let menuOpen = $state(false);
+  let editMode = $state(false);
+  let editDesc = $state(diagram.description ?? '');
+  let editTags = $state((diagram.tags ?? []).join(', '));
+  let editVisibility = $state(diagram.visibility);
+  let editSaving = $state(false);
+
+  function openEditMode() {
+    editDesc = diagram.description ?? '';
+    editTags = (diagram.tags ?? []).join(', ');
+    editVisibility = diagram.visibility;
+    editMode = true;
+    menuOpen = false;
+  }
+
+  function cancelEdit() {
+    editMode = false;
+  }
+
+  async function saveEdit() {
+    editSaving = true;
+    try {
+      const tags = editTags
+        .split(',')
+        .map((t) => t.trim().toLowerCase())
+        .filter((t) => t.length > 0)
+        .slice(0, 20);
+
+      const body: Record<string, unknown> = {
+        description: editDesc.trim() || null,
+        tags,
+        visibility: editVisibility
+      };
+
+      const res = await fetch(`/api/diagrams/${diagram.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.message ?? 'Failed to update');
+        return;
+      }
+
+      const updated = await res.json();
+      diagram.description = updated.description ?? null;
+      diagram.tags = Array.isArray(updated.tags) ? updated.tags : [];
+      diagram.visibility = updated.visibility;
+      diagram.updatedAt = updated.updatedAt;
+      editMode = false;
+      toast.success('Updated');
+      onupdate?.(diagram);
+    } catch {
+      toast.error('Something went wrong');
+    } finally {
+      editSaving = false;
+    }
+  }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -130,7 +195,13 @@
           <div
             class="absolute right-0 bottom-full z-20 mb-1 w-44 rounded-md border border-border bg-popover p-1 shadow-md"
             onmouseleave={() => (menuOpen = false)}>
+            <button
+              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+              onclick={openEditMode}>
+              <DetailsIcon class="size-3.5" /> Edit details
+            </button>
             {#if folders.length > 0}
+              <Separator class="my-1" />
               <div class="px-2 py-1 text-xs font-medium text-muted-foreground">Move to folder</div>
               {#if diagram.folderId}
                 <button
@@ -153,8 +224,8 @@
                   <span class="truncate">{folder.name}</span>
                 </button>
               {/each}
-              <Separator class="my-1" />
             {/if}
+            <Separator class="my-1" />
             <button
               class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
               onclick={() => {
@@ -167,6 +238,59 @@
         {/if}
       </div>
     </div>
+
+    <!-- Inline edit overlay -->
+    {#if editMode}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="absolute inset-0 z-30 flex flex-col gap-2 rounded-lg border border-accent bg-card p-3"
+        onclick={(e) => e.stopPropagation()}>
+        <div class="text-xs font-medium text-muted-foreground">Edit details</div>
+
+        <textarea
+          class="flex min-h-[48px] w-full rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          placeholder="Description..."
+          bind:value={editDesc}
+          maxlength={2000}></textarea>
+
+        <Input
+          type="text"
+          placeholder="Tags (comma-separated)"
+          bind:value={editTags}
+          maxlength={500}
+          class="h-7 text-xs" />
+
+        <div class="flex gap-1">
+          {#each [{ v: 'private', icon: LockIcon }, { v: 'unlisted', icon: LinkIcon }, { v: 'public', icon: PublicIcon }] as opt (opt.v)}
+            <button
+              type="button"
+              class="flex flex-1 items-center justify-center gap-1 rounded border px-1 py-1 text-xs transition-colors {editVisibility ===
+              opt.v
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-border text-muted-foreground hover:border-accent/50'}"
+              onclick={() => (editVisibility = opt.v)}>
+              <opt.icon class="size-3" />
+              <span class="capitalize">{opt.v}</span>
+            </button>
+          {/each}
+        </div>
+
+        <div class="mt-auto flex gap-2">
+          <button
+            class="flex-1 rounded bg-muted px-2 py-1 text-xs hover:bg-muted/80"
+            onclick={cancelEdit}
+            disabled={editSaving}>
+            Cancel
+          </button>
+          <button
+            class="flex-1 rounded bg-accent px-2 py-1 text-xs text-accent-foreground hover:bg-accent/90"
+            onclick={saveEdit}
+            disabled={editSaving}>
+            {editSaving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 {:else}
   <!-- ─── List row ───────────────────────────────────────────────────────── -->
@@ -204,6 +328,12 @@
     </span>
 
     <div class="flex items-center gap-1">
+      <button
+        class="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        title="Edit details"
+        onclick={openEditMode}>
+        <DetailsIcon class="size-4" />
+      </button>
       <a
         href="/d/{diagram.id}"
         class="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -217,5 +347,41 @@
         <DeleteIcon class="size-4" />
       </button>
     </div>
+
+    <!-- List row inline edit -->
+    {#if editMode}
+      <div class="col-span-full flex flex-wrap items-end gap-2 border-t border-border pt-2">
+        <textarea
+          class="flex min-h-[36px] flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          placeholder="Description..."
+          bind:value={editDesc}
+          maxlength={2000}></textarea>
+        <Input
+          type="text"
+          placeholder="Tags"
+          bind:value={editTags}
+          maxlength={500}
+          class="h-7 w-40 text-xs" />
+        <select
+          class="h-7 rounded-md border border-input bg-background px-2 text-xs"
+          bind:value={editVisibility}>
+          <option value="private">Private</option>
+          <option value="unlisted">Unlisted</option>
+          <option value="public">Public</option>
+        </select>
+        <button
+          class="h-7 rounded bg-accent px-3 text-xs text-accent-foreground hover:bg-accent/90"
+          onclick={saveEdit}
+          disabled={editSaving}>
+          {editSaving ? '...' : 'Save'}
+        </button>
+        <button
+          class="h-7 rounded bg-muted px-3 text-xs hover:bg-muted/80"
+          onclick={cancelEdit}
+          disabled={editSaving}>
+          Cancel
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}

@@ -7,6 +7,18 @@
   import { toast } from 'svelte-sonner';
   import SaveIcon from '~icons/material-symbols/save-outline-rounded';
 
+  interface Props {
+    onsave?: (diagram: {
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      tags?: string[];
+      visibility?: string;
+    }) => void;
+  }
+
+  let { onsave }: Props = $props();
+
   const session = authClient.useSession();
 
   type Visibility = 'private' | 'unlisted' | 'public';
@@ -31,7 +43,7 @@
   );
 
   // Project selection
-  let projects: { id: string; name: string; color: string | null }[] = $state([]);
+  let projects: { id: string; name: string }[] = $state([]);
   let selectedProjectId: string | null = $state(null);
   let projectLinkType: 'linked' | 'clone' = $state('linked');
 
@@ -140,6 +152,14 @@
       }
 
       toast.success(activeDiagramId ? 'Diagram updated' : 'Diagram saved');
+
+      onsave?.({
+        description: diagram.description,
+        id: diagram.id,
+        tags: Array.isArray(diagram.tags) ? diagram.tags : [],
+        title: diagram.title,
+        visibility: diagram.visibility
+      });
     } catch {
       toast.error('Something went wrong. Please try again.');
     } finally {

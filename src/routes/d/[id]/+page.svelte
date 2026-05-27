@@ -5,10 +5,14 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import type { PageData } from './$types';
+  import type { ForkResponse } from '$lib/types/api';
   import TagIcon from '~icons/material-symbols/label-outline-rounded';
   import FolderIcon from '~icons/material-symbols/folder-outline-rounded';
 
   let { data }: { data: PageData } = $props();
+
+  let forking = $state(false);
+  let submittingPR = $state(false);
 
   onMount(() => {
     updateCodeStore({
@@ -26,14 +30,62 @@
     navigator.clipboard.writeText(window.location.href);
   }
 
-  const title = data.diagram.title || 'Untitled Diagram';
+  /** Fork this diagram into the current user's account */
+  async function forkDiagram() {
+    forking = true;
+    try {
+      const response = await fetch(`/api/diagrams/${data.diagram.id}/fork`, { method: 'POST' });
+      if (!response.ok) throw new Error('Fork failed');
+      const body = (await response.json()) as ForkResponse;
+      await goto(`/d/${body.fork.id}`);
+    } catch (err) {
+      console.error('Fork error:', err);
+      alert('Failed to fork diagram. Please try again.');
+    } finally {
+      forking = false;
+    }
+  }
+
+  /** Submit a PR from this fork back to the source diagram */
+  async function submitPullRequest() {
+    if (!data.sourceDiagramId) return;
+    submittingPR = true;
+    try {
+      const title = prompt('Pull request title:', `Update from fork`);
+      if (!title) {
+        submittingPR = false;
+        return;
+      }
+      const description = prompt('Description (optional):') ?? undefined;
+      const response = await fetch(`/api/diagrams/${data.sourceDiagramId}/prs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description })
+      });
+      if (!response.ok) throw new Error('PR submission failed');
+      await goto(`/d/${data.sourceDiagramId}/prs`);
+    } catch (err) {
+      console.error('PR error:', err);
+      alert('Failed to submit pull request. Please try again.');
+    } finally {
+      submittingPR = false;
+    }
+  }
+
+  const pageTitle = data.diagram.title || 'Untitled Diagram';
   const authorLabel = data.author?.handle
     ? `@${data.author.handle}`
     : data.author?.name || 'Anonymous';
+
+  /** Show Fork button when user is authenticated but is not the owner */
+  const canFork = $derived(Boolean(data.userId && !data.isOwner));
+
+  /** Show Submit PR button when this diagram is a fork with a known source */
+  const canSubmitPR = $derived(Boolean(data.isFork && data.sourceDiagramId && data.isOwner));
 </script>
 
 <svelte:head>
-  <title>{title} — Mermaid Live Editor</title>
+  <title>{pageTitle} — Mermaid Live Editor</title>
   {#if data.diagram.description}
     <meta name="description" content={data.diagram.description} />
   {/if}
@@ -47,7 +99,7 @@
         ← Editor
       </a>
       <div class="min-w-0 flex-1">
-        <h1 class="truncate text-sm font-semibold">{title}</h1>
+        <h1 class="truncate text-sm font-semibold">{pageTitle}</h1>
         <p class="text-xs text-muted-foreground">
           by {authorLabel}
           {#if data.diagram.visibility === 'public'}
@@ -60,6 +112,21 @@
         </p>
       </div>
       <div class="flex items-center gap-2">
+        {#if canFork}
+          <Button variant="outline" size="sm" onclick={forkDiagram} disabled={forking}>
+            {forking ? 'Forking...' : 'Fork'}
+          </Button>
+        {/if}
+        {#if canSubmitPR}
+          <Button variant="outline" size="sm" onclick={submitPullRequest} disabled={submittingPR}>
+            {submittingPR ? 'Submitting...' : 'Submit PR'}
+          </Button>
+        {/if}
+        {#if data.isOwner}
+          <Button variant="outline" size="sm" onclick={() => goto(`/d/${data.diagram.id}/prs`)}>
+            PRs
+          </Button>
+        {/if}
         <Button variant="outline" size="sm" onclick={copyLink}>Copy link</Button>
         <Button size="sm" onclick={openInEditor}>
           {#if data.isOwner}

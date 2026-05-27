@@ -14,3 +14,12 @@ databaseChangeLog:
   - include:
       file: 005-invite-tokens.yaml
       relativeToChangelogFile: true
+  - include:
+      file: 006-descriptions-tags-projects.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 007-forks-pull-requests.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 008-version-control.yaml
+      relativeToChangelogFile: true

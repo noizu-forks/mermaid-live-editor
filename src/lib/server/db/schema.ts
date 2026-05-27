@@ -6,7 +6,8 @@ import {
   integer,
   index,
   uniqueIndex,
-  check
+  check,
+  jsonb
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -124,12 +125,18 @@ export const folders = pgTable(
 export const diagrams = pgTable(
   'diagrams',
   {
+    activeBranchId: text('active_branch_id'),
     code: text('code').notNull(),
     config: text('config'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
     folderId: text('folder_id').references(() => folders.id, { onDelete: 'set null' }),
     id: text('id').primaryKey(),
     starred: boolean('starred').notNull().default(false),
+    tags: jsonb('tags')
+      .$type<string[]>()
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
     thumbnail: text('thumbnail'),
     title: text('title'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -141,7 +148,9 @@ export const diagrams = pgTable(
     index('idx_diagrams_folder_id').on(table.folderId),
     index('idx_diagrams_visibility').on(table.visibility),
     index('idx_diagrams_starred').using('btree', table.userId, table.starred),
-    check('chk_visibility', sql`visibility IN ('private', 'unlisted', 'public')`)
+    index('idx_diagrams_tags').using('gin', table.tags),
+    check('chk_visibility', sql`visibility IN ('private', 'unlisted', 'public')`),
+    check('chk_diagrams_tags_array', sql`jsonb_typeof(tags) = 'array'`)
   ]
 );
 
@@ -202,5 +211,138 @@ export const diagramShares = pgTable(
       'chk_share_target',
       sql`shared_with_user_id IS NOT NULL OR shared_with_org_id IS NOT NULL`
     )
+  ]
+);
+
+// ─── Projects (diagram collections) ──────────────────────────────────────────
+
+export const projects = pgTable(
+  'projects',
+  {
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    visibility: text('visibility').notNull().default('private')
+  },
+  (table) => [
+    index('idx_projects_owner_id').on(table.ownerId),
+    check('chk_projects_visibility', sql`visibility IN ('private', 'unlisted', 'public')`)
+  ]
+);
+
+export const projectDiagrams = pgTable(
+  'project_diagrams',
+  {
+    addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
+    diagramId: text('diagram_id')
+      .notNull()
+      .references(() => diagrams.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
+    position: integer('position').notNull().default(0),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    uniqueIndex('idx_project_diagrams_unique').on(table.projectId, table.diagramId),
+    index('idx_project_diagrams_diagram_id').on(table.diagramId)
+  ]
+);
+
+// ─── Diagram forks ────────────────────────────────────────────────────────────
+
+export const diagramForks = pgTable(
+  'diagram_forks',
+  {
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    forkedBy: text('forked_by').references(() => users.id, { onDelete: 'set null' }),
+    forkedDiagramId: text('forked_diagram_id')
+      .notNull()
+      .references(() => diagrams.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
+    sourceDiagramId: text('source_diagram_id').references(() => diagrams.id, {
+      onDelete: 'set null'
+    })
+  },
+  (table) => [
+    index('idx_diagram_forks_source').on(table.sourceDiagramId),
+    index('idx_diagram_forks_forked').on(table.forkedDiagramId),
+    uniqueIndex('idx_diagram_forks_unique').on(table.sourceDiagramId, table.forkedDiagramId)
+  ]
+);
+
+// ─── Diagram pull requests ────────────────────────────────────────────────────
+
+export const diagramPullRequests = pgTable(
+  'diagram_pull_requests',
+  {
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    description: text('description'),
+    id: text('id').primaryKey(),
+    sourceDiagramId: text('source_diagram_id').references(() => diagrams.id, {
+      onDelete: 'set null'
+    }),
+    status: text('status').notNull().default('open'),
+    targetDiagramId: text('target_diagram_id')
+      .notNull()
+      .references(() => diagrams.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_diagram_pull_requests_source').on(table.sourceDiagramId),
+    index('idx_diagram_pull_requests_target').on(table.targetDiagramId),
+    index('idx_diagram_pull_requests_created_by').on(table.createdBy),
+    index('idx_diagram_pull_requests_status').on(table.status),
+    check('chk_diagram_pull_requests_status', sql`status IN ('open', 'merged', 'closed')`)
+  ]
+);
+
+// ─── Version control (branches & commits) ─────────────────────────────────────
+
+export const diagramBranches = pgTable(
+  'diagram_branches',
+  {
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    diagramId: text('diagram_id')
+      .notNull()
+      .references(() => diagrams.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex('idx_diagram_branches_unique').on(table.diagramId, table.name),
+    index('idx_diagram_branches_diagram_id').on(table.diagramId)
+  ]
+);
+
+export const diagramCommits = pgTable(
+  'diagram_commits',
+  {
+    branchId: text('branch_id')
+      .notNull()
+      .references(() => diagramBranches.id, { onDelete: 'cascade' }),
+    code: text('code').notNull(),
+    committedBy: text('committed_by').references(() => users.id, { onDelete: 'set null' }),
+    config: text('config'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    id: text('id').primaryKey(),
+    message: text('message'),
+    parentCommitId: text('parent_commit_id').references((): unknown => diagramCommits.id, {
+      onDelete: 'set null'
+    })
+  },
+  (table) => [
+    index('idx_diagram_commits_branch_id').on(table.branchId),
+    index('idx_diagram_commits_parent').on(table.parentCommitId)
   ]
 );
