@@ -25,7 +25,7 @@ ARG MERMAID_BASE_PATH
 
 COPY . ./
 
-RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm build
+RUN GOGC=off GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=4096 pnpm build
 
 FROM mermaid-live-editor-builder AS dev
 

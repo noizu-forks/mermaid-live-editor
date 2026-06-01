@@ -68,18 +68,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // Validate and normalize tags — lowercase, trimmed, deduplicated
   let tags: string[] = [];
   if (Array.isArray(body.tags)) {
-    tags = [
-      ...new Set(
-        body.tags
-          .filter((t: unknown): t is string => typeof t === 'string')
-          .map((t: string) => t.trim().toLowerCase().slice(0, MAX_TAG_LENGTH))
-          .filter((t: string) => t.length > 0)
-      )
-    ].slice(0, MAX_TAGS);
+    const normalizedTags = body.tags
+      .filter((t: unknown): t is string => typeof t === 'string')
+      .map((t: string) => t.trim().toLowerCase().slice(0, MAX_TAG_LENGTH))
+      .filter((t: string) => t.length > 0);
+
+    tags = [...new Set<string>(normalizedTags)].slice(0, MAX_TAGS);
   }
 
   // Validate folderId ownership — prevents IDOR
-  const folderId = typeof body.folderId === 'string' ? body.folderId : null;
+  const folderIdInput = typeof body.folderId === 'string' ? body.folderId.trim() : null;
+  const folderId = folderIdInput || null;
   if (folderId) {
     const folder = await db.query.folders.findFirst({
       where: eq(folders.id, folderId)
@@ -101,7 +100,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       description,
       folderId,
       id,
-      tags: JSON.stringify(tags),
+      tags,
       thumbnail,
       title,
       updatedAt: now,

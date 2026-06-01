@@ -23,3 +23,6 @@ databaseChangeLog:
   - include:
       file: 008-version-control.yaml
       relativeToChangelogFile: true
+  - include:
+      file: 009-better-auth-oauth-expiry.yaml
+      relativeToChangelogFile: true
